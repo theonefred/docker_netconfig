@@ -1,2 +1,2 @@
 # docker_netconfig
-sccripts for docker container network configuration
+scripts for docker container network configuration on centos 7. it's just a memo and not general.

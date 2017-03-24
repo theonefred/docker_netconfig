@@ -1,5 +1,4 @@
-import os
-import shlex, subprocess
+import subprocess
 
 def create_bridge(br_name):
     try:
