@@ -1,21 +1,25 @@
-import commands
+import sys
+import time
 import random
+import commands
 
 def config_veth(container_name, br_name):
     cmd = "docker inspect -f '{{.State.Pid}}' " + container_name
-    nspid = commands.run(cmd)
+    nspid = commands.run(cmd).replace('\n', '')
     
-    veth_name_host = "veth-" + container_name + "-" + br_name
+    veth_name_host = container_name + "-" + br_name
     print "veth_name_host:" + veth_name_host
 
-    veth_name_peer = "veth-" + container_name
+    veth_name_peer = "if." + str(time.time())[-1:13].replace('.', '')
     print "veth_name_peer:" + veth_name_peer
     
     cmd = "ip link del " + veth_name_host
     commands.run(cmd)
 
     cmd = "ip link add " + veth_name_peer + " type veth peer name " + veth_name_host
-    commands.run(cmd)
+    res = commands.run(cmd).replace('\n', '')
+    if 'long' in res:
+        sys.exit(1)
 
     cmd = "ovs-vsctl del-port " + br_name + " " + veth_name_host
     commands.run(cmd)
@@ -27,24 +31,41 @@ def config_veth(container_name, br_name):
     commands.run(cmd)
 
     random.seed()
-    veth_name_container = "eth" + random.random(1, 1000)
+    veth_name_container = "eth" + str(random.randint(1000, 10000))
     cmd = "ip link set dev " + veth_name_peer + " name " + veth_name_container + " netns " + nspid
     commands.run(cmd)
 
     #up veth in container
-    cmd = "ip netns exec " + nspid + " ip link set dev " + veth_name_container + " up"
+    cmd = "nsenter -t "+nspid+" -n " + " ip link set dev " + veth_name_container + " up"
     commands.run(cmd)
 
     return veth_name_container
 
 def config_container(container_name, veth_name, ip):
     cmd = "docker inspect -f '{{.State.Pid}}' " + container_name
-    nspid = commands.run(cmd)
-
-    cmd = "ip netns exec " + nspid + " ip addr add " + ip + " dev " + veth_name
+    nspid = commands.run(cmd).replace('\n', '')
+	
+    cmd = "nsenter -t "+nspid+" -n "  + " ip addr add " + ip + " dev " + veth_name
+    commands.run(cmd)
+	
+def config_container_vlan(container_name, veth_name, ip, vlan_id):
+    cmd = "docker inspect -f '{{.State.Pid}}' " + container_name
+    nspid = commands.run(cmd).replace('\n', '')
+    
+    cmd = "docker exec -t -i " + container_name + " vconfig add " + veth_name + " " + vlan_id
+    commands.run(cmd)
+    
+    iface =  veth_name + "." + vlan_id
+    cmd = "nsenter -t "+nspid+" -n "  + " ip address add " + ip + " dev " + iface
+    commands.run(cmd)
+    
+    cmd = "nsenter -t "+nspid+" -n "  + " ifconfig " + iface + " up"
+    commands.run(cmd)
+    
+    cmd = "nsenter -t "+nspid+" -n "  + " ip route add " + ip + " dev " + iface
     commands.run(cmd)
 
-
 if __name__ == '__main__':
-    veth = config_veth("test_container", "br-rd")
-    config_container("test_container", veth, "192.168.255.100/24")
+    container_name = "test"
+    veth = config_veth(container_name, "br-rd")
+    config_container(container_name, veth, "192.168.255.100/24")
